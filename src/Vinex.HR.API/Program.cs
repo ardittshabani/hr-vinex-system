@@ -89,6 +89,7 @@ try
         }
     });
 
+    var authPermitPerMinute = builder.Configuration.GetValue("RateLimit:AuthPermitPerMinute", 20);
     builder.Services.AddRateLimiter(o =>
     {
         o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -96,7 +97,7 @@ try
             httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 20,
+                PermitLimit = authPermitPerMinute,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
