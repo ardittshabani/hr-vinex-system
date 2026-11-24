@@ -209,7 +209,7 @@ dotnet run --project src/Vinex.HR.API    # applies migrations and seeds
 dotnet run --project src/Vinex.HR.Desktop
 ```
 
-In Development the API needs a bootstrap admin: set `Bootstrap__AdminUsername=admin` and `Bootstrap__AdminPassword=<10+ chars>` before the first start. Sign in, you will be asked to choose a new password.
+`dotnet run` uses `src/Vinex.HR.API/Properties/launchSettings.json`: the API listens on https://localhost:5001 (what the desktop expects) and creates the development admin **admin / Vinex-Dev-Admin-1** on first start. You must choose a new password at first sign-in. Trust the development certificate once with `dotnet dev-certs https --trust`.
 
 ## 11. Testing and CI
 

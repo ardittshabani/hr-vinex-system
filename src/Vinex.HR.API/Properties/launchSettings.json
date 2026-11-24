@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "Vinex.HR.API": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "https://localhost:5001;http://localhost:5000",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Bootstrap__AdminUsername": "admin",
+        "Bootstrap__AdminPassword": "Vinex-Dev-Admin-1"
+      }
+    }
+  }
+}
