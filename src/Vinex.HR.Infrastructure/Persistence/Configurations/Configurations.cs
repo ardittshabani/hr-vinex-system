@@ -89,7 +89,7 @@ internal sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
     {
         b.ToTable("AuditLogs");
         b.HasKey(x => x.Id);
-        b.Property(x => x.Id).UseIdentityColumn(); // overrides the model-wide HiLo default
+        b.Property(x => x.Id).UseIdentityColumn();
         b.Property(x => x.Timestamp).HasColumnType("datetime2");
         b.Property(x => x.Action).HasMaxLength(40).IsRequired();
         b.Property(x => x.EntityName).HasMaxLength(100).IsRequired();

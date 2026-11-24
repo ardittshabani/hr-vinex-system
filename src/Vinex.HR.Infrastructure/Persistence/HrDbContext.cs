@@ -14,11 +14,24 @@ public class HrDbContext(DbContextOptions<HrDbContext> options) : DbContext(opti
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
+    public const string IdSequence = "HrIdSequence";
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Client-side key generation (HiLo) so ids exist before SaveChanges and audit rows
         // for new entities can be written in the same transaction as the change itself.
-        modelBuilder.UseHiLo("HrIdSequence");
+        // The sequence is named on every key explicitly: a model-wide UseHiLo(name) does not round-trip
+        // through the migration snapshot and leaves the model permanently "changed".
+        modelBuilder.HasSequence<int>(IdSequence).IncrementsBy(10);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(HrDbContext).Assembly);
+
+        foreach (var entity in modelBuilder.Model.GetEntityTypes())
+        {
+            var key = entity.FindPrimaryKey();
+            if (key is { Properties.Count: 1 } && key.Properties[0].ClrType == typeof(int))
+            {
+                modelBuilder.Entity(entity.ClrType).Property(key.Properties[0].Name).UseHiLo(IdSequence);
+            }
+        }
     }
 }
