@@ -21,7 +21,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - name: Install dotnet-ef
-        run: dotnet tool install --global dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version "10.*"
+      - name: Restore
+        run: dotnet restore src/Vinex.HR.API/Vinex.HR.API.csproj
       - name: Create migration
         run: |
           dotnet ef migrations add "${{ inputs.name }}" \
