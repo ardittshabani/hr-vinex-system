@@ -1,0 +1,54 @@
+<UserControl x:Class="Vinex.HR.Desktop.Views.ShellView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:b="clr-namespace:Vinex.HR.Desktop.Behaviors">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="248" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Sidebar -->
+        <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+            <DockPanel Margin="16">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,8,0,24">
+                    <Border Width="36" Height="36" CornerRadius="8" Background="{StaticResource AccentBrush}">
+                        <TextBlock Text="V" Foreground="White" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Vinex HR" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" />
+                        <TextBlock Text="Fasteners" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+                    <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,0,0,12" />
+                    <TextBlock Text="{Binding UserName}" FontWeight="SemiBold" Foreground="{StaticResource InkBrush}" Margin="8,0,0,0" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding RoleText}" Style="{StaticResource Muted}" FontSize="12" Margin="8,0,0,10" />
+                    <Button Content="Change password" Command="{Binding ChangePasswordCommand}" Margin="0,0,0,6" />
+                    <Button Content="Sign out" Command="{Binding SignOutCommand}" />
+                </StackPanel>
+
+                <ListBox Style="{StaticResource NavListBox}" ItemContainerStyle="{StaticResource NavItem}"
+                         ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="16" Width="28" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Title}" FontSize="14" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- Content -->
+        <DockPanel Grid.Column="1">
+            <Border DockPanel.Dock="Top" Height="64" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="24,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding TodayText}" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding PageTitle}" Style="{StaticResource PageTitle}" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+            <ContentControl Content="{Binding CurrentPage}" Margin="24" />
+        </DockPanel>
+    </Grid>
+</UserControl>
