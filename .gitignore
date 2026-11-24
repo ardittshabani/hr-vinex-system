@@ -1,0 +1,17 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+*.log
+logs/
+TestResults/
+## Secrets / local config
+appsettings.Local.json
+*.pfx
+.env
+## Misc
+publish/
+artifacts/

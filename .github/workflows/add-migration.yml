@@ -1,0 +1,38 @@
+name: Add EF migration
+
+# Manually run: generates an EF Core migration from the current model and commits it to the chosen branch.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Migration name
+        required: true
+        default: InitialCreate
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install dotnet-ef
+        run: dotnet tool install --global dotnet-ef
+      - name: Create migration
+        run: |
+          dotnet ef migrations add "${{ inputs.name }}" \
+            --project src/Vinex.HR.Infrastructure \
+            --startup-project src/Vinex.HR.API \
+            --context HrDbContext \
+            --output-dir Persistence/Migrations
+      - name: Commit migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Vinex.HR.Infrastructure/Persistence/Migrations
+          git commit -m "Add EF migration ${{ inputs.name }}" || echo "Nothing to commit"
+          git push

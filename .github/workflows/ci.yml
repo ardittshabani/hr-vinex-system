@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, phase-*]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build API (and its references)
+        run: dotnet build src/Vinex.HR.API/Vinex.HR.API.csproj -c Release
+      - name: Test
+        run: |
+          if [ -d tests/Vinex.HR.Tests ] && ls tests/Vinex.HR.Tests/*.csproj >/dev/null 2>&1; then
+            dotnet test tests/Vinex.HR.Tests -c Release --logger "trx;LogFileName=results.trx"
+          else
+            echo "No test project yet"
+          fi
+
+  desktop:
+    name: Desktop (WPF) build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build desktop
+        shell: bash
+        run: |
+          if ls src/Vinex.HR.Desktop/*.csproj >/dev/null 2>&1; then
+            dotnet build src/Vinex.HR.Desktop/Vinex.HR.Desktop.csproj -c Release
+          else
+            echo "No desktop project yet"
+          fi
