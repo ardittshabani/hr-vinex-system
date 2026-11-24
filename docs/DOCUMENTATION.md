@@ -1,0 +1,266 @@
+# Vinex Fasteners – Desktop HR Management System: Documentation
+
+Single reference for the whole system. Status: **Phase 1 (Foundation) complete.** Phases 2–6 are planned and listed at the end.
+
+## Contents
+1. Overview
+2. Architecture
+3. Solution layout
+4. Technology and key decisions (ADRs)
+5. Security model
+6. Database
+7. API reference
+8. Desktop client
+9. Configuration
+10. Running locally
+11. Testing and CI
+12. Deployment (Railway)
+13. Conventions for adding a module
+14. Roadmap and status
+15. Open business questions
+
+---
+
+## 1. Overview
+
+A Windows desktop application for HR staff and management at Vinex Fasteners. A WPF client talks to an ASP.NET Core Web API over REST; the API persists to SQL Server through EF Core.
+
+**Roles**
+
+| Role | Access |
+|---|---|
+| HR Administrator | Full access, including user management, settings and audit |
+| Management | Read-only on Dashboard, Employees (non-sensitive fields), Departments, Attendance, Shifts, Leave, Reports |
+
+Roles are enforced **in the API**, not only hidden in the UI. The desktop client merely hides what the user cannot use.
+
+**Modules:** Dashboard, Employees, Departments, Attendance (priority), Shifts, Leave, Reports, User Management, Settings.
+
+## 2. Architecture
+
+A modular monolith with a strict dependency direction:
+
+```
+Desktop (WPF) ──► Contracts ◄── Application ◄── Infrastructure ◄── API
+                                     ▲                               │
+                                  Domain ◄───────────────────────────┘ (composition root wires everything)
+```
+
+* **Domain** – entities and enums. No package references.
+* **Contracts** – DTOs, FluentValidation validators, and the permission/role catalogue. Shared by API and Desktop so validation rules are written once.
+* **Application** – use-case services (`AuthService`, `UserService`, …) working against `IHrDbContext`. No generic repository layer, no MediatR, no AutoMapper; mapping is explicit.
+* **Infrastructure** – EF Core `HrDbContext`, configurations, audit interceptor, password hashing, JWT issuing, database initialisation and seeding.
+* **API** – controllers, authorization policies, error handling, rate limiting, hosting.
+* **Desktop** – WPF, MVVM, talks to the API only. It references Contracts, never Domain or Infrastructure.
+
+`tests/Vinex.HR.Tests` enforces these rules (see §11).
+
+## 3. Solution layout
+
+```
+Vinex.HR.sln
+src/
+  Vinex.HR.Domain/          entities, enums
+  Vinex.HR.Contracts/       DTOs, validators, Security/Permissions.cs
+  Vinex.HR.Application/     services, abstractions, AppException
+  Vinex.HR.Infrastructure/  EF Core, migrations, JWT, seeding
+  Vinex.HR.API/             controllers, Program.cs
+  Vinex.HR.Desktop/         WPF client
+tests/Vinex.HR.Tests/       unit + integration tests
+docs/DOCUMENTATION.md       this file
+Dockerfile                  builds the API image
+docker-compose.yml          local SQL Server
+.github/workflows/          ci.yml, add-migration.yml
+```
+
+## 4. Technology and key decisions
+
+Stack: C#, .NET 10 (LTS), WPF/XAML, CommunityToolkit.Mvvm, ASP.NET Core, EF Core 10, SQL Server, FluentValidation, Serilog, ClosedXML and QuestPDF (reports, from Phase 5), built-in DI.
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | Modular monolith, one API, one database | Solo-maintained internal tool; microservices would add cost with no benefit |
+| 2 | Added a 7th project, `Contracts` | The client needs DTOs and validators without referencing server code |
+| 3 | `IHrDbContext` instead of repositories | EF Core already is a unit of work and repository; less code to maintain |
+| 4 | No MediatR / AutoMapper | Avoids over-engineering; manual mapping is trivial at this size |
+| 5 | Permission-based authorization (policy per permission) | Management is read-only today, but finer roles can be added by editing one map |
+| 6 | JWT access token (15 min) + rotating refresh token | Short-lived access; refresh tokens stored only as SHA-256 hashes |
+| 7 | Refresh-token reuse revokes all of the user's tokens | Detects stolen tokens |
+| 8 | `UseHiLo` id generation | Ids are known before save, needed by the audit interceptor |
+| 9 | Audit log written in the same transaction as the change | An audit row can never be missing or orphaned |
+| 10 | `rowversion` optimistic concurrency, HTTP 409 on conflict | Two HR users editing the same record cannot silently overwrite each other |
+| 11 | ProblemDetails (RFC 9457) for all errors | One predictable error shape for the client |
+| 12 | FluentValidation run by a filter (not FluentValidation.AspNetCore) | The package is deprecated; same rules shared with the desktop |
+| 13 | WPF ViewModel-first navigation with DataTemplates | Views stay free of navigation logic and are easy to test |
+| 14 | Source-generated MVVM (`[ObservableProperty]`, `[RelayCommand]`) | Removes boilerplate |
+| 15 | Tokens held in memory only on the client | No credentials on disk; idle timeout of 30 minutes signs the user out |
+| 16 | EF migrations generated by a GitHub Actions workflow | Keeps migrations reproducible without a local SDK setup |
+
+## 5. Security model
+
+* **Passwords**: ASP.NET `PasswordHasher<User>` (PBKDF2), minimum 10 characters.
+* **Lockout**: 5 failed attempts locks the account for 15 minutes. The login error is generic so usernames cannot be enumerated.
+* **Forced password change**: the bootstrap admin and any admin-created or reset account carries `must_change_password`. Until it is changed, every permission-protected endpoint returns 403; only login, refresh, logout, `me` and `change-password` work.
+* **Authorization**: each endpoint declares a permission policy such as `Users.Manage`. A reflection test fails the build if an action has no explicit decision or references an unknown policy, and asserts that only `login` and `refresh` are anonymous.
+* **Rate limiting**: login and refresh are limited to 20 requests per minute per IP (`RateLimit:AuthPermitPerMinute`).
+* **Audit**: create/update/delete of auditable entities is logged with user, time, old and new values. Secrets (`PasswordHash`) and noisy counters are excluded.
+* **Last administrator guard**: the last active HR Administrator cannot be deactivated, and users cannot deactivate themselves.
+* **Transport**: serve the API over HTTPS only. On Railway TLS is terminated by the platform and forwarded headers are honoured.
+
+### Permission matrix
+
+| Permission | HR Administrator | Management |
+|---|:-:|:-:|
+| Dashboard.View | ✔ | ✔ |
+| Employees.View | ✔ | ✔ |
+| Employees.ViewSensitive | ✔ | – |
+| Employees.Manage | ✔ | – |
+| Departments.View / Manage | ✔ / ✔ | ✔ / – |
+| Attendance.View / Manage | ✔ / ✔ | ✔ / – |
+| Shifts.View / Manage | ✔ / ✔ | ✔ / – |
+| Leave.View / Manage | ✔ / ✔ | ✔ / – |
+| Reports.View | ✔ | ✔ |
+| Users.Manage | ✔ | – |
+| Settings.Manage | ✔ | – |
+| Audit.View | ✔ | – |
+
+The source of truth is `src/Vinex.HR.Contracts/Security/Permissions.cs`.
+
+## 6. Database
+
+SQL Server (2022 or later; Express is fine for development). Code-first with EF Core; the schema is defined by `Persistence/Configurations` and the migrations in `Persistence/Migrations` (first migration: `InitialCreate`).
+
+**Phase 1 tables**
+
+| Table | Purpose |
+|---|---|
+| Roles | HRAdministrator, Management |
+| Users | Login accounts: hash, active flag, lockout, must-change-password |
+| RefreshTokens | Hashed refresh tokens, expiry, revocation, replaced-by chain |
+| Departments | Production, Maintenance, Administration, Logistics (seeded) |
+| Positions | Job titles per department (seeded) |
+| AuditLogs | Who changed what, when (bigint identity) |
+| SystemSettings | Key/value settings (seeded defaults) |
+
+Employees, Attendance, Shifts and Leave tables arrive in their phases; the target schema is in the pre-implementation design document.
+
+**Startup behaviour (`DatabaseInitializer`)**: waits for the database (retries), applies pending migrations, then seeds roles, departments, positions, system settings and the bootstrap admin if no users exist.
+
+**Adding a migration**: run the *Add EF migration* GitHub Actions workflow (Actions → Add EF migration → Run workflow, choose a name). It commits the migration to the branch. Locally you can run:
+
+```
+dotnet ef migrations add <Name> --project src/Vinex.HR.Infrastructure --startup-project src/Vinex.HR.API --context HrDbContext --output-dir Persistence/Migrations
+```
+
+## 7. API reference (v1)
+
+Base path `/api/v1`. JSON, string enums. Errors are ProblemDetails; validation errors are `400` with an `errors` map, concurrency conflicts `409`, lockout/invalid credentials `401`.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | /auth/login | anonymous, rate limited | Returns access + refresh tokens and the user |
+| POST | /auth/refresh | anonymous, rate limited | Rotates the refresh token |
+| POST | /auth/logout | any signed-in user | Revokes the refresh token |
+| GET | /auth/me | any signed-in user | Current user and permissions |
+| POST | /auth/change-password | any signed-in user | Changes password, returns fresh tokens |
+| GET | /users | Users.Manage | Paged list |
+| GET | /users/{id} | Users.Manage | One user |
+| POST | /users | Users.Manage | Create (starts with must-change-password) |
+| PUT | /users/{id} | Users.Manage | Update; requires the current `rowVersion` |
+| POST | /users/{id}/reset-password | Users.Manage | Sets a temporary password |
+| POST | /users/{id}/activate | Users.Manage | Re-enable |
+| POST | /users/{id}/deactivate | Users.Manage | Disable (guards apply) |
+| GET | /roles | Users.Manage | Available roles |
+| GET | /health, /health/ready | anonymous | Liveness / database readiness |
+
+## 8. Desktop client
+
+* **Shell**: sidebar navigation filtered by the signed-in user's permissions; modules that are not built yet show a "coming soon" page.
+* **Screens in Phase 1**: Login, forced Change Password, Dashboard placeholder, User Management (list, create, edit, reset password, activate/deactivate).
+* **Plumbing**: typed `HttpClient`s via `IHttpClientFactory`; `AuthHeaderHandler` adds the bearer token and, on a 401, refreshes once and retries; `ViewModelBase` implements `INotifyDataErrorInfo` using the shared FluentValidation validators and maps server validation errors back to fields; generic `DialogWindow` for editors.
+* **Logs**: `%LocalAppData%\Vinex\HR\logs`.
+* **API address**: `Api:BaseUrl` in `appsettings.json` next to the executable (default `https://localhost:5001/`). Point it at the deployed API for production.
+
+Build/run requires Windows with the .NET 10 SDK.
+
+## 9. Configuration
+
+API settings (environment variables use `__` for nesting):
+
+| Key | Purpose |
+|---|---|
+| `ConnectionStrings__Default` | SQL Server connection string (required) |
+| `Jwt__Key` | HMAC signing key, at least 32 characters (required) |
+| `Jwt__Issuer`, `Jwt__Audience`, `Jwt__AccessTokenMinutes` | Token settings |
+| `Bootstrap__AdminUsername`, `Bootstrap__AdminPassword` | Creates the first administrator when no users exist |
+| `Database__AllowEnsureCreated` | Only for throw-away databases without migrations; leave unset |
+| `RateLimit__AuthPermitPerMinute` | Default 20 |
+| `PORT` | Listening port (set by Railway) |
+
+Never commit real secrets. `appsettings.Development.json` contains a development-only key and the local docker password.
+
+## 10. Running locally
+
+Prerequisites: .NET 10 SDK, Docker (for SQL Server), Windows for the desktop client.
+
+```
+docker compose up -d                     # SQL Server on localhost:1433
+dotnet run --project src/Vinex.HR.API    # applies migrations and seeds
+dotnet run --project src/Vinex.HR.Desktop
+```
+
+In Development the API needs a bootstrap admin: set `Bootstrap__AdminUsername=admin` and `Bootstrap__AdminPassword=<10+ chars>` before the first start. Sign in, you will be asked to choose a new password.
+
+## 11. Testing and CI
+
+`dotnet test` runs:
+
+* **Unit**: permission map, validators, architecture dependency rules, authorization matrix.
+* **Integration** (Testcontainers starts a real SQL Server, so Docker is required): login, forced password change, lockout, refresh rotation and reuse detection, Management getting 403 on user administration, audit entries on create, last-admin and duplicate-username guards.
+
+GitHub Actions (`ci.yml`) builds and tests the API on Ubuntu and builds the WPF client on Windows for every push and pull request.
+
+## 12. Deployment (Railway)
+
+The API ships as a Docker image (`Dockerfile`, port from `PORT`). Railway project **vinex-hr** contains an `api` service (variables set, source not yet connected) and a `sqlserver` service.
+
+Current blockers:
+1. Railway needs authorization for the GitHub repo (Railway → Account → GitHub app → grant `ardittshabani/hr-vinex-system`), then connect the `api` service to the `main` branch.
+2. **SQL Server on Railway needs ≥ 2 GB RAM, the `-T1800` start flag, and a volume owned by the `mssql` user.** The current plan caps a service at 1 GB, so it crashes. Options: upgrade the plan, use Azure SQL (free tier available) or another SQL Server host, or host SQL Server on the factory server. Whatever is chosen, only `ConnectionStrings__Default` changes.
+
+After connecting: generate a public domain for `api`, check `/health/ready`, then set `Api:BaseUrl` in the desktop client. Keep the database on Railway's private network and never expose it publicly. Use a dedicated least-privilege SQL login rather than `sa`.
+
+## 13. Conventions for adding a module
+
+1. Entities in Domain; configuration in `Infrastructure/Persistence/Configurations`; generate a migration.
+2. DTOs and validators in Contracts; permissions added to `Permissions.cs` and `RolePermissions`.
+3. Service in Application using `IHrDbContext`; throw `AppException` for expected errors.
+4. Controller with a permission policy on every action.
+5. API client, ViewModels and Views in Desktop; register a nav item guarded by the same permission.
+6. Tests: validators, permission rules, one integration test per business rule.
+7. Update this document.
+
+## 14. Roadmap and status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 Foundation | Solution, auth, roles, users, audit, shell, CI, tests, migration | **Done** |
+| 2 Employees | Employees, departments and positions CRUD, search/filter, sensitive-field protection, photos/documents (TBD) | Next |
+| 3 Attendance | Daily attendance, manual entry and corrections, lateness/absence rules, import from clocking device (TBD) | Planned |
+| 4 Shifts and Leave | Shift definitions and rosters, leave types, balances, approvals | Planned |
+| 5 Reports | Excel (ClosedXML) and PDF (QuestPDF) reports, dashboard KPIs | Planned |
+| 6 Deployment | Installer, API hosting (Railway or on-prem Windows Service), backups, hardening | Planned; partly prepared |
+
+**QuestPDF licence**: Community licence is free below US$1M annual gross revenue. Confirm Vinex Fasteners qualifies before Phase 5.
+
+## 15. Open business questions
+
+Answers change the design of later phases:
+1. How is attendance captured today (paper, clocking device, spreadsheet)? Can the device export data?
+2. Shift patterns: fixed, rotating, how many, and overtime rules?
+3. Leave policy: annual entitlement, carry-over, sick/unpaid types, who approves?
+4. Which employee fields count as sensitive (salary, ID number, medical, contract)?
+5. Approximate headcount and number of simultaneous HR users?
+6. Is the API hosted in the cloud or on a server in the factory? Is the desktop client used on the factory network only?
+7. Albanian/English UI needed?
+8. Data retention rules for audit and former employees.

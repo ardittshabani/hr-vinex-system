@@ -29,7 +29,6 @@ public sealed class ApiFixture : IAsyncLifetime
         Environment.SetEnvironmentVariable("Jwt__Key", "integration-test-signing-key-0123456789-abcdef");
         Environment.SetEnvironmentVariable("Bootstrap__AdminUsername", AdminUsername);
         Environment.SetEnvironmentVariable("Bootstrap__AdminPassword", AdminInitialPassword);
-        Environment.SetEnvironmentVariable("Database__AllowEnsureCreated", "true");
         Environment.SetEnvironmentVariable("RateLimit__AuthPermitPerMinute", "100000");
 
         _factory = new WebApplicationFactory<Program>();
